@@ -10,37 +10,115 @@ import {
   Text,
 } from '@chakra-ui/react';
 import { Alchemy, Network } from 'alchemy-sdk';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+const ALCHEMY_KEY_ETH = import.meta.env.VITE_ALCHEMY_KEY_ETH;
+const ALCHEMY_KEY_MUMBAI = import.meta.env.VITE_ALCHEMY_KEY_ETH;
+
+const networks = ["GOERLI", "MUMBAI"];
 
 function App() {
   const [userAddress, setUserAddress] = useState('');
   const [results, setResults] = useState([]);
   const [hasQueried, setHasQueried] = useState(false);
   const [tokenDataObjects, setTokenDataObjects] = useState([]);
+  const [alchemy, setAlchemy] = useState({});
+  const [targetNetwork, setTargetNetwork] = useState(networks[0]);
+  const [walletAddress, setWalletAddress] = useState("Not connected");
 
-  async function getNFTsForOwner() {
-    const config = {
-      apiKey: '<-- COPY-PASTE YOUR ALCHEMY API KEY HERE -->',
-      network: Network.ETH_MAINNET,
-    };
+  useEffect(() => {
+    updateProviderNetwork(targetNetwork);
+  }, [targetNetwork]);
 
-    const alchemy = new Alchemy(config);
-    const data = await alchemy.nft.getNftsForOwner(userAddress);
-    setResults(data);
+  function updateProviderNetwork(networkToGet) {
+    let config = {};
 
+    switch (networkToGet) {
+      case networks[0]:
+      default:
+        config = {
+          apiKey: ALCHEMY_KEY_ETH,
+          network: Network.ETH_GOERLI,
+        };
+        break;
+      case networks[1]:
+        config = {
+          apiKey: ALCHEMY_KEY_MUMBAI,
+          network: Network.MATIC_MUMBAI,
+        };
+        break;
+    }
+    const alchemyTmp = new Alchemy(config);
+    setAlchemy(alchemyTmp);
+  }
+
+  async function getNftMetadatas(nftData) {
     const tokenDataPromises = [];
 
-    for (let i = 0; i < data.ownedNfts.length; i++) {
+    for (let i = 0; i < nftData.ownedNfts.length; i++) {
       const tokenData = alchemy.nft.getNftMetadata(
-        data.ownedNfts[i].contract.address,
-        data.ownedNfts[i].tokenId
+        nftData.ownedNfts[i].contract.address,
+        nftData.ownedNfts[i].tokenId
       );
       tokenDataPromises.push(tokenData);
     }
 
     setTokenDataObjects(await Promise.all(tokenDataPromises));
+  }
+
+  async function getNFTsForOwner(userAddressToRequest) {
+    setHasQueried(false);
+    const data = await alchemy.nft.getNftsForOwner(userAddressToRequest);
+    setResults(data);
+    await getNftMetadatas(data);
     setHasQueried(true);
   }
+
+  async function getNFTFromWallet() {
+    if (window.ethereum) {
+      try {
+        const addressArray = await window.ethereum.request({
+          method: "eth_requestAccounts",
+        });
+        if (addressArray.length > 0) {
+          setWalletAddress(addressArray[0].slice(0, 5) + "..." + addressArray[0].slice(-5));
+          await getNFTsForOwner(addressArray[0]);
+        }
+      } catch (err) {
+        console.log(err);
+      }
+    } else {
+      console.log("You should intall a wallet!");
+    }
+  }
+
+  const handleRadioChange = (event) => {
+    setTargetNetwork(event.target.value);
+  };
+
+  const renderRadioButtons = () => {
+    return (
+      <form style={{display:"flex", flexDirection: "row", justifyContent:"space-around", width:"20%"}}>
+        <div className="radio">
+          <label>
+            <input type="radio" value={networks[0]} 
+              checked={targetNetwork === networks[0]} 
+              onChange={handleRadioChange} />
+            Goerli
+          </label>
+        </div>
+        <div className="radio">
+          <label>
+            <input type="radio" value={networks[1]} 
+              checked={targetNetwork === networks[1]} 
+              onChange={handleRadioChange} />
+            Mumbai
+          </label>
+        </div>
+      </form>
+    );
+  };
+
   return (
     <Box w="100vw">
       <Center>
@@ -49,6 +127,9 @@ function App() {
           justifyContent="center"
           flexDirection={'column'}
         >
+          <Text>
+            Wallet: {walletAddress}
+          </Text>
           <Heading mb={0} fontSize={36}>
             NFT Indexer 🖼
           </Heading>
@@ -73,9 +154,18 @@ function App() {
           bgColor="white"
           fontSize={24}
         />
-        <Button fontSize={20} onClick={getNFTsForOwner} mt={36} bgColor="blue">
-          Fetch NFTs
-        </Button>
+        {renderRadioButtons()}
+        <Flex
+          flexDir={'row'}
+        >
+          <Button fontSize={20} onClick={() => getNFTsForOwner(userAddress)} mt={36} background={"#9494b8"}>
+            Check ERC-20 Token Balances
+          </Button>
+          {/* fix here */}
+          <Button fontSize={20} onClick={getNFTFromWallet} mt={36} ml={22} background={"#00cc00"}>
+            Get your ERC-20 Token Balances
+          </Button>
+        </Flex>
 
         <Heading my={36}>Here are your NFTs:</Heading>
 
@@ -85,9 +175,11 @@ function App() {
               return (
                 <Flex
                   flexDir={'column'}
-                  color="white"
-                  bg="blue"
-                  w={'20vw'}
+                  padding={20}
+                  borderWidth={1}
+                  borderRadius={20}
+                  borderStyle={"solid"}
+                  w={'13vw'}
                   key={e.id}
                 >
                   <Box>
